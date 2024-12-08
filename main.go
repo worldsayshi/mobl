@@ -242,43 +242,68 @@ func storeToDgraph(functionMap map[string]*Function) error {
 		return fmt.Errorf("failed to set schema after %d retries: %v", maxRetries, err)
 	}
 
-	// Create a map of function name to uid
-	uidMap := make(map[string]string)
-
 	// Start a new transaction
 	txn := client.NewTxn()
 	defer txn.Discard(context.Background())
 
-	// First pass: Create all function nodes
-	log.Println("Creating function nodes...")
-	for funcName, function := range functionMap {
+	// Upsert all functions
+	log.Println("Upserting function nodes...")
+	for _, function := range functionMap {
 		mutation := &api.Mutation{
 			SetNquads: []byte(fmt.Sprintf(`
-				_:%s <name> %q .
-				_:%s <filePath> %q .
-				_:%s <dgraph.type> "Function" .
-			`, funcName, function.Name, funcName, function.FilePath, funcName)),
+				_:func <name> %q .
+				_:func <filePath> %q .
+				_:func <dgraph.type> "Function" .
+			`, function.Name, function.FilePath)),
+			Cond: fmt.Sprintf(`@if(eq(len(func), 0) AND eq(len(funcByName), 0))
+				func as var(func: type(Function)) @filter(eq(name, %q) AND eq(filePath, %q))
+				funcByName as var(func: type(Function)) @filter(eq(name, %q))`, function.Name, function.FilePath, function.Name),
 		}
 
-		resp, err := txn.Mutate(context.Background(), mutation)
+		_, err := txn.Mutate(context.Background(), mutation)
 		if err != nil {
-			return fmt.Errorf("error creating function node: %v", err)
+			return fmt.Errorf("error upserting function node: %v", err)
 		}
-
-		uidMap[funcName] = resp.Uids[funcName]
 	}
 
-	log.Printf("Created %d function nodes", len(uidMap))
+	// Query to get all function UIDs
+	const q = `
+		{
+			functions(func: type(Function)) {
+				uid
+				name
+			}
+		}
+	`
 
-	// Second pass: Create relationships
-	log.Println("Creating function call relationships...")
-	relationshipCount := 0
+	resp, err := txn.Query(context.Background(), q)
+	if err != nil {
+		return fmt.Errorf("error querying function UIDs: %v", err)
+	}
+
+	var result struct {
+		Functions []struct {
+			UID  string `json:"uid"`
+			Name string `json:"name"`
+		} `json:"functions"`
+	}
+
+	if err := json.Unmarshal(resp.Json, &result); err != nil {
+		return fmt.Errorf("error unmarshaling query result: %v", err)
+	}
+
+	uidMap := make(map[string]string)
+	for _, f := range result.Functions {
+		uidMap[f.Name] = f.UID
+	}
+
+	// Update relationships
+	log.Println("Updating function call relationships...")
 	for funcName, function := range functionMap {
 		var nquads strings.Builder
 		for _, calledFunc := range function.Calls {
 			if calledUid, ok := uidMap[calledFunc]; ok {
 				fmt.Fprintf(&nquads, "<%s> <calls> <%s> .\n", uidMap[funcName], calledUid)
-				relationshipCount++
 			}
 		}
 
@@ -289,7 +314,7 @@ func storeToDgraph(functionMap map[string]*Function) error {
 
 			_, err := txn.Mutate(context.Background(), mutation)
 			if err != nil {
-				return fmt.Errorf("error creating relationships: %v", err)
+				return fmt.Errorf("error updating relationships: %v", err)
 			}
 		}
 	}
@@ -300,8 +325,7 @@ func storeToDgraph(functionMap map[string]*Function) error {
 		return fmt.Errorf("error committing transaction: %v", err)
 	}
 
-	log.Printf("Created %d function call relationships", relationshipCount)
-	log.Printf("UID Map: %v", uidMap)
+	log.Printf("Upserted %d functions", len(functionMap))
 	return nil
 }
 
