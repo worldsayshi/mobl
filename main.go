@@ -46,7 +46,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-  "strings"
+	"strings"
+	"time"
 
 	"github.com/dgraph-io/dgo/v2"
 	"github.com/dgraph-io/dgo/v2/protos/api"
@@ -209,24 +210,36 @@ func storeToDgraph(functionMap map[string]*Function) error {
 
 	client := dgo.NewDgraphClient(api.NewDgraphClient(conn))
 
-	// Set schema
+	// Set schema with retry
 	log.Println("Setting Dgraph schema...")
-	op := &api.Operation{
-		Schema: `
-			name: string @index(exact) .
-			filePath: string .
-			calls: [uid] @reverse .
-			type Function {
-				name
-				filePath
-				calls
-			}
-		`,
-	}
+	maxRetries := 5
+	for i := 0; i < maxRetries; i++ {
+		op := &api.Operation{
+			Schema: `
+				name: string @index(exact) .
+				filePath: string .
+				calls: [uid] @reverse .
+				type Function {
+					name
+					filePath
+					calls
+				}
+			`,
+		}
 
-	err = client.Alter(context.Background(), op)
+		err = client.Alter(context.Background(), op)
+		if err == nil {
+			break
+		}
+		if strings.Contains(err.Error(), "Pending transactions found") {
+			log.Printf("Pending transactions found. Retrying in %d seconds...", i+1)
+			time.Sleep(time.Duration(i+1) * time.Second)
+		} else {
+			return fmt.Errorf("error setting schema: %v", err)
+		}
+	}
 	if err != nil {
-		return fmt.Errorf("error setting schema: %v", err)
+		return fmt.Errorf("failed to set schema after %d retries: %v", maxRetries, err)
 	}
 
 	// Create a map of function name to uid
@@ -277,8 +290,6 @@ func storeToDgraph(functionMap map[string]*Function) error {
 		}
 	}
 
-	log.Printf("Created %d function call relationships", relationshipCount)
-	return nil
 	log.Printf("Created %d function call relationships", relationshipCount)
 	return nil
 }
