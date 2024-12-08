@@ -67,6 +67,8 @@ func main() {
 	}
 	sourceDir := os.Args[1]
 
+	log.Printf("Analyzing source directory: %s", sourceDir)
+
 	// Initialize Tree-sitter
 	parser := sitter.NewParser()
 	parser.SetLanguage(golang.GetLanguage())
@@ -75,11 +77,14 @@ func main() {
 	functionMap := make(map[string]*Function)
 
 	// Walk through all .go files in the directory
+	fileCount := 0
 	err := filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if !info.IsDir() && filepath.Ext(path) == ".go" {
+			fileCount++
+			log.Printf("Processing file: %s", path)
 			err := processFile(path, parser, functionMap)
 			if err != nil {
 				log.Printf("Error processing %s: %v", path, err)
@@ -92,11 +97,16 @@ func main() {
 		log.Fatal(err)
 	}
 
+	log.Printf("Processed %d files", fileCount)
+	log.Printf("Found %d functions", len(functionMap))
+
 	// Store in Dgraph
+	log.Println("Storing data in Dgraph...")
 	err = storeToDgraph(functionMap)
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Println("Data storage complete")
 }
 
 func processFile(filePath string, parser *sitter.Parser, functionMap map[string]*Function) error {
@@ -183,6 +193,7 @@ func processFile(filePath string, parser *sitter.Parser, functionMap map[string]
 
 func storeToDgraph(functionMap map[string]*Function) error {
 	// Connect to Dgraph
+	log.Println("Connecting to Dgraph...")
 	conn, err := grpc.Dial("localhost:9080", grpc.WithInsecure())
 	if err != nil {
 		return fmt.Errorf("error connecting to Dgraph: %v", err)
@@ -192,6 +203,7 @@ func storeToDgraph(functionMap map[string]*Function) error {
 	client := dgo.NewDgraphClient(api.NewDgraphClient(conn))
 
 	// Set schema
+	log.Println("Setting Dgraph schema...")
 	op := &api.Operation{
 		Schema: `
 			name: string @index(exact) .
@@ -214,6 +226,7 @@ func storeToDgraph(functionMap map[string]*Function) error {
 	uidMap := make(map[string]string)
 
 	// First pass: Create all function nodes
+	log.Println("Creating function nodes...")
 	for funcName, function := range functionMap {
 		mutation := &api.Mutation{
 			SetNquads: []byte(fmt.Sprintf(`
@@ -231,12 +244,17 @@ func storeToDgraph(functionMap map[string]*Function) error {
 		uidMap[funcName] = resp.Uids[funcName]
 	}
 
+	log.Printf("Created %d function nodes", len(uidMap))
+
 	// Second pass: Create relationships
+	log.Println("Creating function call relationships...")
+	relationshipCount := 0
 	for funcName, function := range functionMap {
 		var nquads strings.Builder
 		for _, calledFunc := range function.Calls {
 			if calledUid, ok := uidMap[calledFunc]; ok {
 				fmt.Fprintf(&nquads, "<%s> <calls> <%s> .\n", uidMap[funcName], calledUid)
+				relationshipCount++
 			}
 		}
 
@@ -252,5 +270,6 @@ func storeToDgraph(functionMap map[string]*Function) error {
 		}
 	}
 
+	log.Printf("Created %d function call relationships", relationshipCount)
 	return nil
 }
