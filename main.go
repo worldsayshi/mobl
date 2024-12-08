@@ -245,6 +245,10 @@ func storeToDgraph(functionMap map[string]*Function) error {
 	// Create a map of function name to uid
 	uidMap := make(map[string]string)
 
+	// Start a new transaction
+	txn := client.NewTxn()
+	defer txn.Discard(context.Background())
+
 	// First pass: Create all function nodes
 	log.Println("Creating function nodes...")
 	for funcName, function := range functionMap {
@@ -256,7 +260,7 @@ func storeToDgraph(functionMap map[string]*Function) error {
 			`, funcName, function.Name, funcName, function.FilePath, funcName)),
 		}
 
-		resp, err := client.NewTxn().Mutate(context.Background(), mutation)
+		resp, err := txn.Mutate(context.Background(), mutation)
 		if err != nil {
 			return fmt.Errorf("error creating function node: %v", err)
 		}
@@ -283,12 +287,19 @@ func storeToDgraph(functionMap map[string]*Function) error {
 				SetNquads: []byte(nquads.String()),
 			}
 
-			_, err := client.NewTxn().Mutate(context.Background(), mutation)
+			_, err := txn.Mutate(context.Background(), mutation)
 			if err != nil {
 				return fmt.Errorf("error creating relationships: %v", err)
 			}
 		}
 	}
+
+	// Commit the transaction
+	err = txn.Commit(context.Background())
+	if err != nil {
+		return fmt.Errorf("error committing transaction: %v", err)
+	}
+
 	log.Printf("Created %d function call relationships", relationshipCount)
 	log.Printf("UID Map: %v", uidMap)
 	return nil
