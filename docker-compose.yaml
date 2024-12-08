@@ -1,0 +1,37 @@
+version: "3.8"
+
+services:
+  dgraph-zero:
+    image: dgraph/dgraph:latest
+    volumes:
+      - dgraph-zero-data:/dgraph
+    ports:
+      - "5080:5080"
+      - "6080:6080"
+    restart: on-failure
+    command: dgraph zero --my=dgraph-zero:5080
+
+  dgraph-alpha:
+    image: dgraph/dgraph:latest
+    volumes:
+      - dgraph-alpha-data:/dgraph
+    ports:
+      - "8080:8080"
+      - "9080:9080"
+    restart: on-failure
+    command: dgraph alpha --my=dgraph-alpha:7080 --zero=dgraph-zero:5080 --security whitelist=0.0.0.0/0
+    depends_on:
+      - dgraph-zero
+
+  ratel:
+    image: dgraph/ratel:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - DGRAPH_DEFAULT_URL=http://dgraph-alpha:8080
+    depends_on:
+      - dgraph-alpha
+
+volumes:
+  dgraph-zero-data:
+  dgraph-alpha-data:
