@@ -107,6 +107,13 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Println("Data storage complete")
+
+	log.Println("Querying stored data...")
+	err = queryDgraph()
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Query complete")
 }
 
 func processFile(filePath string, parser *sitter.Parser, functionMap map[string]*Function) error {
@@ -271,5 +278,41 @@ func storeToDgraph(functionMap map[string]*Function) error {
 	}
 
 	log.Printf("Created %d function call relationships", relationshipCount)
+	return nil
+	log.Printf("Created %d function call relationships", relationshipCount)
+	return nil
+}
+
+func queryDgraph() error {
+	// Connect to Dgraph
+	conn, err := grpc.Dial("localhost:9080", grpc.WithInsecure())
+	if err != nil {
+		return fmt.Errorf("error connecting to Dgraph: %v", err)
+	}
+	defer conn.Close()
+
+	client := dgo.NewDgraphClient(api.NewDgraphClient(conn))
+
+	// Query to fetch all functions and their calls
+	const q = `
+	{
+		functions(func: type(Function)) {
+			name
+			filePath
+			calls {
+				name
+			}
+		}
+	}
+	`
+
+	resp, err := client.NewTxn().Query(context.Background(), q)
+	if err != nil {
+		return fmt.Errorf("error querying Dgraph: %v", err)
+	}
+
+	fmt.Println("Query Result:")
+	fmt.Println(string(resp.Json))
+
 	return nil
 }
