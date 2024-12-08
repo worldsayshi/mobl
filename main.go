@@ -289,8 +289,8 @@ func storeToDgraph(functionMap map[string]*Function) error {
 			}
 		}
 	}
-
 	log.Printf("Created %d function call relationships", relationshipCount)
+	log.Printf("UID Map: %v", uidMap)
 	return nil
 }
 
@@ -307,7 +307,7 @@ func queryDgraph() error {
 	// Query to fetch all functions and their calls
 	const q = `
 	{
-		functions(func: type(Function)) {
+		functions(func: has(name)) {
 			name
 			filePath
 			calls {
