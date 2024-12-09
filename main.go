@@ -37,11 +37,12 @@
 //   }
 // }
 
-
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -93,7 +94,6 @@ func main() {
 		}
 		return nil
 	})
-
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func processFile(filePath string, parser *sitter.Parser, functionMap map[string]
 	}
 	defer query.Close()
 
-	// Execute the query
+	// Execute the query:
 	cursor := sitter.NewQueryCursor()
 	cursor.Exec(query, tree.RootNode())
 
@@ -157,7 +157,7 @@ func processFile(filePath string, parser *sitter.Parser, functionMap map[string]
 		for _, capture := range match.Captures {
 			if capture.Index == 0 { // func.name capture
 				funcName := content[capture.Node.StartByte():capture.Node.EndByte()]
-				
+
 				// Create function entry
 				function := &Function{
 					Name:     string(funcName),
@@ -359,6 +359,12 @@ func queryDgraph() error {
 
 	fmt.Println("Query Result:")
 	fmt.Println(string(resp.Json))
+	var prettyJSON bytes.Buffer
+	error := json.Indent(&prettyJSON, resp.Json, "", "    ")
+	if error != nil {
+		return error
+	}
 
+	// fmt.Println(prettyJSON.String())
 	return nil
 }
