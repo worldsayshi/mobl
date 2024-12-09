@@ -251,17 +251,13 @@ func storeToDgraph(functionMap map[string]*Function) error {
 	for _, function := range functionMap {
 		mutation := &api.Mutation{
 			SetNquads: []byte(fmt.Sprintf(`
-				uid(func) <name> %q .
-				uid(func) <filePath> %q .
-				uid(func) <dgraph.type> "Function" .
+				_:func <name> %q .
+				_:func <filePath> %q .
+				_:func <dgraph.type> "Function" .
 			`, function.Name, function.FilePath)),
-			Cond: fmt.Sprintf(`
-				@if(eq(len(func), 0)) {
-					func as var(func: type(Function)) @filter(eq(name, %q) AND eq(filePath, %q))
-				} @else {
-					func as var(func: type(Function)) @filter(eq(name, %q) AND eq(filePath, %q))
-				}
-			`, function.Name, function.FilePath, function.Name, function.FilePath),
+			Cond: fmt.Sprintf(`@if(eq(len(func), 0) AND eq(len(funcByName), 0))
+				func as var(func: type(Function)) @filter(eq(name, %q) AND eq(filePath, %q))
+				funcByName as var(func: type(Function)) @filter(eq(name, %q))`, function.Name, function.FilePath, function.Name),
 		}
 
 		_, err := txn.Mutate(context.Background(), mutation)
@@ -299,20 +295,6 @@ func storeToDgraph(functionMap map[string]*Function) error {
 	uidMap := make(map[string]string)
 	for _, f := range result.Functions {
 		uidMap[f.Name] = f.UID
-	}
-
-	// Clear existing relationships
-	log.Println("Clearing existing function call relationships...")
-	for funcName := range functionMap {
-		if uid, ok := uidMap[funcName]; ok {
-			mutation := &api.Mutation{
-				DelNquads: []byte(fmt.Sprintf("<%s> <calls> * .", uid)),
-			}
-			_, err := txn.Mutate(context.Background(), mutation)
-			if err != nil {
-				return fmt.Errorf("error clearing existing relationships: %v", err)
-			}
-		}
 	}
 
 	// Update relationships
