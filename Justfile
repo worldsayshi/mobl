@@ -14,4 +14,5 @@ run-code-analysis:
 delete-dgraph-data:
   #!/bin/bash
   set -euo pipefail
-  curl -X POST localhost:8080/alter -d '{"drop_all": true}'
+  # curl -X POST localhost:8080/alter -d '{"drop_all": true}'
+  rm callgraph.db
