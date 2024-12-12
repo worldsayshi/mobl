@@ -366,12 +366,17 @@ func queryDgraph() error {
 
 	// Render the graph
 	var buf bytes.Buffer
-	if err := g.Render(ctx, graph, "dot", &buf); err != nil {
+	if err := g.Render(ctx, graph, graphviz.PNG, &buf); err != nil {
 		return fmt.Errorf("error rendering graph: %v", err)
 	}
 
-	fmt.Println("\nGraphviz DOT output:")
-	fmt.Println(buf.String())
+	// Save the PNG image to a file
+	outputPath := "callgraph.png"
+	if err := g.RenderFilename(ctx, graph, graphviz.PNG, outputPath); err != nil {
+		return fmt.Errorf("error saving graph image: %v", err)
+	}
+
+	fmt.Printf("\nGraph image saved to: %s\n", outputPath)
 
 	return nil
 }
