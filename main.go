@@ -275,7 +275,7 @@ func queryDgraph() error {
 
 	// Query to fetch all functions and their calls
 	rows, err := db.Query(`
-		SELECT n.body, e.target
+		SELECT n.body, COALESCE(e.target, '') as target
 		FROM nodes n
 		LEFT JOIN edges e ON n.id = e.source
 		ORDER BY n.id, e.target
