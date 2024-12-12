@@ -40,21 +40,17 @@
 package main
 
 import (
-	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
 
-	"github.com/dgraph-io/dgo/v2"
-	"github.com/dgraph-io/dgo/v2/protos/api"
+	_ "github.com/mattn/go-sqlite3"
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/golang"
-	"google.golang.org/grpc"
 )
 
 type Function struct {
@@ -64,6 +60,7 @@ type Function struct {
 }
 
 func main() {
+	log.Printf("Running")
 	if len(os.Args) != 2 {
 		log.Fatal("Usage: program <source_directory>")
 	}
@@ -200,171 +197,127 @@ func processFile(filePath string, parser *sitter.Parser, functionMap map[string]
 }
 
 func storeToDgraph(functionMap map[string]*Function) error {
-	// Connect to Dgraph
-	log.Println("Connecting to Dgraph...")
-	conn, err := grpc.Dial("localhost:9080", grpc.WithInsecure())
+	// Open SQLite database
+	log.Println("Opening SQLite database...")
+	db, err := sql.Open("sqlite3", "callgraph.db")
 	if err != nil {
-		return fmt.Errorf("error connecting to Dgraph: %v", err)
+		return fmt.Errorf("error opening SQLite database: %v", err)
 	}
-	defer conn.Close()
+	defer db.Close()
 
-	client := dgo.NewDgraphClient(api.NewDgraphClient(conn))
+	// Create tables
+	log.Println("Creating tables...")
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS nodes (
+			body TEXT,
+			id   TEXT GENERATED ALWAYS AS (json_extract(body, '$.id')) VIRTUAL NOT NULL UNIQUE
+		);
 
-	// Set schema with retry
-	log.Println("Setting Dgraph schema...")
-	maxRetries := 5
-	for i := 0; i < maxRetries; i++ {
-		op := &api.Operation{
-			Schema: `
-				name: string @index(exact) .
-				filePath: string .
-				calls: [uid] @reverse .
-				type Function {
-					name
-					filePath
-					calls
-				}
-			`,
-		}
+		CREATE INDEX IF NOT EXISTS id_idx ON nodes(id);
 
-		err = client.Alter(context.Background(), op)
-		if err == nil {
-			break
-		}
-		if strings.Contains(err.Error(), "Pending transactions found") {
-			log.Printf("Pending transactions found. Retrying in %d seconds...", i+1)
-			time.Sleep(time.Duration(i+1) * time.Second)
-		} else {
-			return fmt.Errorf("error setting schema: %v", err)
-		}
-	}
+		CREATE TABLE IF NOT EXISTS edges (
+			source     TEXT,
+			target     TEXT,
+			properties TEXT,
+			UNIQUE(source, target, properties) ON CONFLICT REPLACE,
+			FOREIGN KEY(source) REFERENCES nodes(id),
+			FOREIGN KEY(target) REFERENCES nodes(id)
+		);
+
+		CREATE INDEX IF NOT EXISTS source_idx ON edges(source);
+		CREATE INDEX IF NOT EXISTS target_idx ON edges(target);
+	`)
 	if err != nil {
-		return fmt.Errorf("failed to set schema after %d retries: %v", maxRetries, err)
+		return fmt.Errorf("error creating tables: %v", err)
 	}
 
-	// Start a new transaction
-	txn := client.NewTxn()
-	defer txn.Discard(context.Background())
-
-	// Upsert all functions
-	log.Println("Upserting function nodes...")
+	// Insert nodes
+	log.Println("Inserting function nodes...")
 	for _, function := range functionMap {
-		mutation := &api.Mutation{
-			SetNquads: []byte(fmt.Sprintf(`
-				_:func <name> %q .
-				_:func <filePath> %q .
-				_:func <dgraph.type> "Function" .
-			`, function.Name, function.FilePath)),
-			Cond: fmt.Sprintf(`@if(eq(len(func), 0) AND eq(len(funcByName), 0))
-				func as var(func: type(Function)) @filter(eq(name, %q) AND eq(filePath, %q))
-				funcByName as var(func: type(Function)) @filter(eq(name, %q))`, function.Name, function.FilePath, function.Name),
-		}
-
-		_, err := txn.Mutate(context.Background(), mutation)
+		body, err := json.Marshal(map[string]string{
+			"id":       function.Name,
+			"name":     function.Name,
+			"filePath": function.FilePath,
+		})
 		if err != nil {
-			return fmt.Errorf("error upserting function node: %v", err)
+			return fmt.Errorf("error marshaling function data: %v", err)
+		}
+
+		_, err = db.Exec("INSERT OR REPLACE INTO nodes (body) VALUES (?)", string(body))
+		if err != nil {
+			return fmt.Errorf("error inserting node: %v", err)
 		}
 	}
 
-	// Query to get all function UIDs
-	const q = `
-		{
-			functions(func: type(Function)) {
-				uid
-				name
-			}
-		}
-	`
-
-	resp, err := txn.Query(context.Background(), q)
-	if err != nil {
-		return fmt.Errorf("error querying function UIDs: %v", err)
-	}
-
-	var result struct {
-		Functions []struct {
-			UID  string `json:"uid"`
-			Name string `json:"name"`
-		} `json:"functions"`
-	}
-
-	if err := json.Unmarshal(resp.Json, &result); err != nil {
-		return fmt.Errorf("error unmarshaling query result: %v", err)
-	}
-
-	uidMap := make(map[string]string)
-	for _, f := range result.Functions {
-		uidMap[f.Name] = f.UID
-	}
-
-	// Update relationships
-	log.Println("Updating function call relationships...")
+	// Insert edges
+	log.Println("Inserting function call relationships...")
 	for funcName, function := range functionMap {
-		var nquads strings.Builder
 		for _, calledFunc := range function.Calls {
-			if calledUid, ok := uidMap[calledFunc]; ok {
-				fmt.Fprintf(&nquads, "<%s> <calls> <%s> .\n", uidMap[funcName], calledUid)
-			}
-		}
-
-		if nquads.Len() > 0 {
-			mutation := &api.Mutation{
-				SetNquads: []byte(nquads.String()),
-			}
-
-			_, err := txn.Mutate(context.Background(), mutation)
+			_, err = db.Exec("INSERT OR REPLACE INTO edges (source, target, properties) VALUES (?, ?, ?)",
+				funcName, calledFunc, "calls")
 			if err != nil {
-				return fmt.Errorf("error updating relationships: %v", err)
+				return fmt.Errorf("error inserting edge: %v", err)
 			}
 		}
 	}
 
-	// Commit the transaction
-	err = txn.Commit(context.Background())
-	if err != nil {
-		return fmt.Errorf("error committing transaction: %v", err)
-	}
-
-	log.Printf("Upserted %d functions", len(functionMap))
+	log.Printf("Inserted %d functions", len(functionMap))
 	return nil
 }
 
 func queryDgraph() error {
-	// Connect to Dgraph
-	conn, err := grpc.Dial("localhost:9080", grpc.WithInsecure())
+	// Open SQLite database
+	db, err := sql.Open("sqlite3", "callgraph.db")
 	if err != nil {
-		return fmt.Errorf("error connecting to Dgraph: %v", err)
+		return fmt.Errorf("error opening SQLite database: %v", err)
 	}
-	defer conn.Close()
-
-	client := dgo.NewDgraphClient(api.NewDgraphClient(conn))
+	defer db.Close()
 
 	// Query to fetch all functions and their calls
-	const q = `
-	{
-		functions(func: has(name)) {
-			name
-			filePath
-			calls {
-				name
-			}
+	rows, err := db.Query(`
+		SELECT n.body, e.target
+		FROM nodes n
+		LEFT JOIN edges e ON n.id = e.source
+		ORDER BY n.id, e.target
+	`)
+	if err != nil {
+		return fmt.Errorf("error querying SQLite: %v", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]map[string]interface{})
+	for rows.Next() {
+		var body, target string
+		err := rows.Scan(&body, &target)
+		if err != nil {
+			return fmt.Errorf("error scanning row: %v", err)
+		}
+
+		var funcData map[string]interface{}
+		err = json.Unmarshal([]byte(body), &funcData)
+		if err != nil {
+			return fmt.Errorf("error unmarshaling function data: %v", err)
+		}
+
+		funcName := funcData["name"].(string)
+		if _, ok := result[funcName]; !ok {
+			result[funcName] = funcData
+			result[funcName]["calls"] = make([]string, 0)
+		}
+
+		if target != "" {
+			calls := result[funcName]["calls"].([]string)
+			result[funcName]["calls"] = append(calls, target)
 		}
 	}
-	`
 
-	resp, err := client.NewTxn().Query(context.Background(), q)
+	jsonResult, err := json.MarshalIndent(map[string]interface{}{"functions": result}, "", "    ")
 	if err != nil {
-		return fmt.Errorf("error querying Dgraph: %v", err)
+		return fmt.Errorf("error marshaling result: %v", err)
 	}
 
 	fmt.Println("Query Result:")
-	fmt.Println(string(resp.Json))
-	var prettyJSON bytes.Buffer
-	error := json.Indent(&prettyJSON, resp.Json, "", "    ")
-	if error != nil {
-		return error
-	}
+	fmt.Println(string(jsonResult))
 
-	// fmt.Println(prettyJSON.String())
 	return nil
 }
