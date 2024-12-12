@@ -40,6 +40,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -48,6 +49,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/goccy/go-graphviz"
 	_ "github.com/mattn/go-sqlite3"
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/golang"
@@ -318,6 +320,58 @@ func queryDgraph() error {
 
 	fmt.Println("Query Result:")
 	fmt.Println(string(jsonResult))
+
+	// Create graphviz graph
+	ctx := context.Background()
+	g, err := graphviz.New(ctx)
+	if err != nil {
+		return fmt.Errorf("error creating graphviz: %v", err)
+	}
+	defer g.Close()
+
+	graph, err := g.Graph()
+	if err != nil {
+		return fmt.Errorf("error creating graph: %v", err)
+	}
+	defer func() {
+		if err := graph.Close(); err != nil {
+			log.Printf("error closing graph: %v", err)
+		}
+	}()
+
+	// Create nodes and edges
+	nodes := make(map[string]*graphviz.Node)
+	for funcName, funcData := range result {
+		node, err := graph.CreateNodeByName(funcName)
+		if err != nil {
+			return fmt.Errorf("error creating node: %v", err)
+		}
+		nodes[funcName] = node
+
+		calls := funcData["calls"].([]string)
+		for _, calledFunc := range calls {
+			if _, ok := nodes[calledFunc]; !ok {
+				calledNode, err := graph.CreateNodeByName(calledFunc)
+				if err != nil {
+					return fmt.Errorf("error creating node: %v", err)
+				}
+				nodes[calledFunc] = calledNode
+			}
+			_, err := graph.CreateEdgeByName("call", nodes[funcName], nodes[calledFunc])
+			if err != nil {
+				return fmt.Errorf("error creating edge: %v", err)
+			}
+		}
+	}
+
+	// Render the graph
+	var buf bytes.Buffer
+	if err := g.Render(ctx, graph, "dot", &buf); err != nil {
+		return fmt.Errorf("error rendering graph: %v", err)
+	}
+
+	fmt.Println("\nGraphviz DOT output:")
+	fmt.Println(buf.String())
 
 	return nil
 }
