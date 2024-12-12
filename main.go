@@ -378,5 +378,21 @@ func queryDgraph() error {
 
 	fmt.Printf("\nGraph image saved to: %s\n", outputPath)
 
+	// Print DOT output for reference
+	var dotBuf bytes.Buffer
+	if err := g.Render(ctx, graph, graphviz.PNG, &dotBuf); err != nil {
+		return fmt.Errorf("error rendering DOT output: %v", err)
+	}
+	// // 2. get as image.Image instance
+	// image, err := g.RenderImage(ctx, graph)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// 3. write to file directly
+	// if err := g.RenderFilename(ctx, graph, graphviz.PNG, "graph.png"); err != nil {
+	// 	panic(err)
+	// }
+	fmt.Println("\nGraphviz DOT output:")
+	fmt.Println(dotBuf.String())
 	return nil
 }
