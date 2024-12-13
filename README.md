@@ -5,4 +5,9 @@
   - [ ] Identify the sql statements needed to reimplement the current dgraph stuff
   - [ ] Feed that stuff to Claude/Avante and ask it to use sqlc
   - [X] For now non-sqlc stuff was used
-- [ ] Output a dot file, have a live-reload server look at the dot file, render the dot graph in some web dot graphviz visualizer 
+- [X] Output a dot file, have a live-reload server look at the dot file, render the dot graph in some web dot graphviz visualizer 
+
+## Dependencies
+
+sudo apt-get update
+sudo apt-get install graphviz
