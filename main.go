@@ -365,10 +365,10 @@ func queryDgraph() error {
 	}
 
 	// Render the graph
-	var buf bytes.Buffer
-	if err := g.Render(ctx, graph, graphviz.PNG, &buf); err != nil {
-		return fmt.Errorf("error rendering graph: %v", err)
-	}
+	// var buf bytes.Buffer
+	// if err := g.Render(ctx, graph, graphviz.PNG, &buf); err != nil {
+	// 	return fmt.Errorf("error rendering graph: %v", err)
+	// }
 
 	// Save the PNG image to a file
 	outputPath := "callgraph.png"
@@ -380,9 +380,15 @@ func queryDgraph() error {
 
 	// Print DOT output for reference
 	var dotBuf bytes.Buffer
-	if err := g.Render(ctx, graph, graphviz.PNG, &dotBuf); err != nil {
+	if err := g.Render(ctx, graph, graphviz.Format(graphviz.DOT), &dotBuf); err != nil {
 		return fmt.Errorf("error rendering DOT output: %v", err)
 	}
+	// Write the dot output buffer to a file
+	dotPath := "callgraph.dot"
+	if err := os.WriteFile(dotPath, dotBuf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("error writing DOT output to file: %v", err)
+	}
+
 	// // 2. get as image.Image instance
 	// image, err := g.RenderImage(ctx, graph)
 	// if err != nil {
