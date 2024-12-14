@@ -109,11 +109,18 @@ func main() {
 	log.Println("Data storage complete")
 
 	log.Println("Querying stored data...")
-	err = queryDgraph()
+	result, err := queryDgraph()
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Println("Query complete")
+
+	log.Println("Generating DOT file...")
+	err = generateDotFile(result)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("DOT file generation complete")
 }
 
 func processFile(filePath string, parser *sitter.Parser, functionMap map[string]*Function) error {
@@ -267,11 +274,11 @@ func storeToDgraph(functionMap map[string]*Function) error {
 	return nil
 }
 
-func queryDgraph() error {
+func queryDgraph() (map[string]map[string]interface{}, error) {
 	// Open SQLite database
 	db, err := sql.Open("sqlite3", "callgraph.db")
 	if err != nil {
-		return fmt.Errorf("error opening SQLite database: %v", err)
+		return nil, fmt.Errorf("error opening SQLite database: %v", err)
 	}
 	defer db.Close()
 
@@ -283,7 +290,7 @@ func queryDgraph() error {
 		ORDER BY n.id, e.target
 	`)
 	if err != nil {
-		return fmt.Errorf("error querying SQLite: %v", err)
+		return nil, fmt.Errorf("error querying SQLite: %v", err)
 	}
 	defer rows.Close()
 
@@ -292,13 +299,13 @@ func queryDgraph() error {
 		var body, target string
 		err := rows.Scan(&body, &target)
 		if err != nil {
-			return fmt.Errorf("error scanning row: %v", err)
+			return nil, fmt.Errorf("error scanning row: %v", err)
 		}
 
 		var funcData map[string]interface{}
 		err = json.Unmarshal([]byte(body), &funcData)
 		if err != nil {
-			return fmt.Errorf("error unmarshaling function data: %v", err)
+			return nil, fmt.Errorf("error unmarshaling function data: %v", err)
 		}
 
 		funcName := funcData["name"].(string)
@@ -313,14 +320,10 @@ func queryDgraph() error {
 		}
 	}
 
-	jsonResult, err := json.MarshalIndent(map[string]interface{}{"functions": result}, "", "    ")
-	if err != nil {
-		return fmt.Errorf("error marshaling result: %v", err)
-	}
+	return result, nil
+}
 
-	fmt.Println("Query Result:")
-	fmt.Println(string(jsonResult))
-
+func generateDotFile(result map[string]map[string]interface{}) error {
 	// Create graphviz graph
 	ctx := context.Background()
 	g, err := graphviz.New(ctx)
@@ -364,25 +367,18 @@ func queryDgraph() error {
 		}
 	}
 
-	// Save the PNG image to a file
-	outputPath := "callgraph.png"
-	if err := g.RenderFilename(ctx, graph, graphviz.PNG, outputPath); err != nil {
-		return fmt.Errorf("error saving graph image: %v", err)
-	}
-
-	fmt.Printf("\nGraph image saved to: %s\n", outputPath)
-
-	// Print DOT output for reference
+	// Generate DOT output
 	var dotBuf bytes.Buffer
 	if err := g.Render(ctx, graph, graphviz.Format(graphviz.DOT), &dotBuf); err != nil {
 		return fmt.Errorf("error rendering DOT output: %v", err)
 	}
+
 	// Write the dot output buffer to a file
 	dotPath := "callgraph.dot"
 	if err := os.WriteFile(dotPath, dotBuf.Bytes(), 0644); err != nil {
 		return fmt.Errorf("error writing DOT output to file: %v", err)
 	}
-	fmt.Println("\nGraphviz DOT output:")
-	fmt.Println(dotBuf.String())
+
+	fmt.Printf("\nDOT file saved to: %s\n", dotPath)
 	return nil
 }
