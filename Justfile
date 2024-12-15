@@ -8,7 +8,7 @@ run-docker-compose:
 run-code-analysis:
   #!/bin/bash
   set -euo pipefail
-  go run main.go ../go-game/
+  go run main.go -o callgraph.dot ../go-game/
 
 
 delete-output:
