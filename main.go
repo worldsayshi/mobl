@@ -44,6 +44,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -63,10 +64,14 @@ type Function struct {
 
 func main() {
 	log.Printf("Running")
-	if len(os.Args) != 2 {
-		log.Fatal("Usage: program <source_directory>")
+
+	outputPath := flag.String("o", "callgraph.dot", "Output DOT file path")
+	flag.Parse()
+
+	if flag.NArg() != 1 {
+		log.Fatal("Usage: program [-o output_file] <source_directory>")
 	}
-	sourceDir := os.Args[1]
+	sourceDir := flag.Arg(0)
 
 	log.Printf("Analyzing source directory: %s", sourceDir)
 
@@ -120,7 +125,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = writeDotFile(dotBuf)
+	err = writeDotFile(dotBuf, *outputPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -377,13 +382,12 @@ func generateDotOutput(result map[string]*Function) (*bytes.Buffer, error) {
 	return &dotBuf, nil
 }
 
-func writeDotFile(dotBuf *bytes.Buffer) error {
+func writeDotFile(dotBuf *bytes.Buffer, outputPath string) error {
 	// Write the dot output buffer to a file
-	dotPath := "callgraph.dot"
-	if err := os.WriteFile(dotPath, dotBuf.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(outputPath, dotBuf.Bytes(), 0644); err != nil {
 		return fmt.Errorf("error writing DOT output to file: %v", err)
 	}
 
-	fmt.Printf("\nDOT file saved to: %s\n", dotPath)
+	fmt.Printf("\nDOT file saved to: %s\n", outputPath)
 	return nil
 }
