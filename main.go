@@ -321,18 +321,18 @@ func queryCallGraph() (map[string]*Function, error) {
 	return result, nil
 }
 
-func generateDotFile(result map[string]*Function) error {
+func generateDotOutput(result map[string]*Function) (*bytes.Buffer, error) {
 	// Create graphviz graph
 	ctx := context.Background()
 	g, err := graphviz.New(ctx)
 	if err != nil {
-		return fmt.Errorf("error creating graphviz: %v", err)
+		return nil, fmt.Errorf("error creating graphviz: %v", err)
 	}
 	defer g.Close()
 
 	graph, err := g.Graph()
 	if err != nil {
-		return fmt.Errorf("error creating graph: %v", err)
+		return nil, fmt.Errorf("error creating graph: %v", err)
 	}
 	defer func() {
 		if err := graph.Close(); err != nil {
@@ -345,7 +345,7 @@ func generateDotFile(result map[string]*Function) error {
 	for funcName, funcData := range result {
 		node, err := graph.CreateNodeByName(funcName)
 		if err != nil {
-			return fmt.Errorf("error creating node: %v", err)
+			return nil, fmt.Errorf("error creating node: %v", err)
 		}
 		nodes[funcName] = node
 
@@ -353,13 +353,13 @@ func generateDotFile(result map[string]*Function) error {
 			if _, ok := nodes[calledFunc]; !ok {
 				calledNode, err := graph.CreateNodeByName(calledFunc)
 				if err != nil {
-					return fmt.Errorf("error creating node: %v", err)
+					return nil, fmt.Errorf("error creating node: %v", err)
 				}
 				nodes[calledFunc] = calledNode
 			}
 			_, err := graph.CreateEdgeByName("call", nodes[funcName], nodes[calledFunc])
 			if err != nil {
-				return fmt.Errorf("error creating edge: %v", err)
+				return nil, fmt.Errorf("error creating edge: %v", err)
 			}
 		}
 	}
@@ -367,9 +367,13 @@ func generateDotFile(result map[string]*Function) error {
 	// Generate DOT output
 	var dotBuf bytes.Buffer
 	if err := g.Render(ctx, graph, graphviz.Format(graphviz.DOT), &dotBuf); err != nil {
-		return fmt.Errorf("error rendering DOT output: %v", err)
+		return nil, fmt.Errorf("error rendering DOT output: %v", err)
 	}
 
+	return &dotBuf, nil
+}
+
+func writeDotFile(dotBuf *bytes.Buffer) error {
 	// Write the dot output buffer to a file
 	dotPath := "callgraph.dot"
 	if err := os.WriteFile(dotPath, dotBuf.Bytes(), 0644); err != nil {
@@ -378,4 +382,12 @@ func generateDotFile(result map[string]*Function) error {
 
 	fmt.Printf("\nDOT file saved to: %s\n", dotPath)
 	return nil
+}
+
+func generateDotFile(result map[string]*Function) error {
+	dotBuf, err := generateDotOutput(result)
+	if err != nil {
+		return err
+	}
+	return writeDotFile(dotBuf)
 }
