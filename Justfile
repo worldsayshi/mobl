@@ -20,4 +20,4 @@ delete-dgraph-data:
 render-dotfile:
   #!/bin/bash
   set -euo pipefail
-  dot -Tpng callgraph.dot -o callgraph2.png
+  dot -Tpng callgraph.dot -o callgraph.png
