@@ -116,7 +116,11 @@ func main() {
 	log.Println("Query complete")
 
 	log.Println("Generating DOT file...")
-	err = generateDotFile(result)
+	dotBuf, err := generateDotOutput(result)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = writeDotFile(dotBuf)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -382,12 +386,4 @@ func writeDotFile(dotBuf *bytes.Buffer) error {
 
 	fmt.Printf("\nDOT file saved to: %s\n", dotPath)
 	return nil
-}
-
-func generateDotFile(result map[string]*Function) error {
-	dotBuf, err := generateDotOutput(result)
-	if err != nil {
-		return err
-	}
-	return writeDotFile(dotBuf)
 }
