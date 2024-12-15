@@ -321,7 +321,7 @@ func queryCallGraph() (map[string]*Function, error) {
 	return result, nil
 }
 
-func generateDotFile(result map[string]map[string]interface{}) error {
+func generateDotFile(result map[string]*Function) error {
 	// Create graphviz graph
 	ctx := context.Background()
 	g, err := graphviz.New(ctx)
@@ -349,8 +349,7 @@ func generateDotFile(result map[string]map[string]interface{}) error {
 		}
 		nodes[funcName] = node
 
-		calls := funcData["calls"].([]string)
-		for _, calledFunc := range calls {
+		for _, calledFunc := range funcData.Calls {
 			if _, ok := nodes[calledFunc]; !ok {
 				calledNode, err := graph.CreateNodeByName(calledFunc)
 				if err != nil {
