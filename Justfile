@@ -11,11 +11,11 @@ run-code-analysis:
   go run main.go ../go-game/
 
 
-delete-dgraph-data:
+delete-output:
   #!/bin/bash
   set -euo pipefail
   # curl -X POST localhost:8080/alter -d '{"drop_all": true}'
-  rm -f callgraph.db
+  rm -f callgraph.*
 
 render-dotfile:
   #!/bin/bash
