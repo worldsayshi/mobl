@@ -109,7 +109,7 @@ func main() {
 	log.Println("Data storage complete")
 
 	log.Println("Querying stored data...")
-	result, err := queryDgraph()
+	result, err := queryCallGraph()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func storeToDgraph(functionMap map[string]*Function) error {
 	return nil
 }
 
-func queryDgraph() (map[string]map[string]interface{}, error) {
+func queryCallGraph() (map[string]*Function, error) {
 	// Open SQLite database
 	db, err := sql.Open("sqlite3", "callgraph.db")
 	if err != nil {
@@ -294,7 +294,7 @@ func queryDgraph() (map[string]map[string]interface{}, error) {
 	}
 	defer rows.Close()
 
-	result := make(map[string]map[string]interface{})
+	result := make(map[string]*Function)
 	for rows.Next() {
 		var body, target string
 		err := rows.Scan(&body, &target)
@@ -302,21 +302,19 @@ func queryDgraph() (map[string]map[string]interface{}, error) {
 			return nil, fmt.Errorf("error scanning row: %v", err)
 		}
 
-		var funcData map[string]interface{}
+		var funcData Function
 		err = json.Unmarshal([]byte(body), &funcData)
 		if err != nil {
 			return nil, fmt.Errorf("error unmarshaling function data: %v", err)
 		}
 
-		funcName := funcData["name"].(string)
-		if _, ok := result[funcName]; !ok {
-			result[funcName] = funcData
-			result[funcName]["calls"] = make([]string, 0)
+		if _, ok := result[funcData.Name]; !ok {
+			result[funcData.Name] = &funcData
+			result[funcData.Name].Calls = make([]string, 0)
 		}
 
 		if target != "" {
-			calls := result[funcName]["calls"].([]string)
-			result[funcName]["calls"] = append(calls, target)
+			result[funcData.Name].Calls = append(result[funcData.Name].Calls, target)
 		}
 	}
 
