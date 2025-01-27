@@ -339,7 +339,12 @@ func writeGEXFFile(gexfBuf *bytes.Buffer, outputPath string) error {
 
 func generatePNGOutput(graph *graphviz.Graph, outputPath string) error {
 	ctx := context.Background()
-	if err := graph.RenderFilename(ctx, graphviz.PNG, outputPath); err != nil {
+	g, err := graphviz.New(ctx)
+	if err != nil {
+		return fmt.Errorf("error creating graphviz: %v", err)
+	}
+	defer g.Close()
+	if err := g.RenderFilename(ctx, graph, graphviz.PNG, outputPath); err != nil {
 		return fmt.Errorf("error rendering PNG output: %v", err)
 	}
 	fmt.Printf("\nPNG file saved to: %s\n", outputPath)
