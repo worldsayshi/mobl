@@ -27,11 +27,16 @@ type Function struct {
 func main() {
 	log.Printf("Running")
 
-	dotFilePath := flag.String("dotgraph", "callgraph.dot", "Output DOT file path")
+	dotFilePath := flag.String("dotgraph", "", "Output DOT file path")
+	graphmlFilePath := flag.String("graphml", "", "Output GraphML file path")
+	gexfFilePath := flag.String("gexf", "", "Output GEXF file path")
 	flag.Parse()
 
 	if flag.NArg() != 1 {
-		log.Fatal("Usage: program [-dotgraph output_file] <source_directory>")
+		log.Fatal("Usage: program [-dotgraph output_file] [-graphml output_file] [-gexf output_file] <source_directory>")
+	}
+	if *dotFilePath == "" && *graphmlFilePath == "" && *gexfFilePath == "" {
+		log.Fatal("At least one of -dotgraph, -graphml, or -gexf must be set")
 	}
 	sourceDir := flag.Arg(0)
 
@@ -67,16 +72,44 @@ func main() {
 	log.Printf("Processed %d files", fileCount)
 	log.Printf("Found %d functions", len(functionMap))
 
-	log.Println("Generating DOT file...")
-	dotBuf, err := generateDotOutput(functionMap)
-	if err != nil {
-		log.Fatal(err)
+	if *dotFilePath != "" {
+		log.Println("Generating DOT file...")
+		dotBuf, err := generateDotOutput(functionMap)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = writeDotFile(dotBuf, *dotFilePath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Println("DOT file generation complete")
 	}
-	err = writeDotFile(dotBuf, *dotFilePath)
-	if err != nil {
-		log.Fatal(err)
+
+	if *graphmlFilePath != "" {
+		log.Println("Generating GraphML file...")
+		graphmlBuf, err := generateGraphMLOutput(functionMap)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = writeGraphMLFile(graphmlBuf, *graphmlFilePath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Println("GraphML file generation complete")
 	}
-	log.Println("DOT file generation complete")
+
+	if *gexfFilePath != "" {
+		log.Println("Generating GEXF file...")
+		gexfBuf, err := generateGEXFOutput(functionMap)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = writeGEXFFile(gexfBuf, *gexfFilePath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Println("GEXF file generation complete")
+	}
 }
 
 func processFile(filePath string, parser *sitter.Parser, functionMap map[string]*Function) error {
@@ -220,5 +253,71 @@ func writeDotFile(dotBuf *bytes.Buffer, outputPath string) error {
 	}
 
 	fmt.Printf("\nDOT file saved to: %s\n", outputPath)
+	return nil
+}
+
+func generateGraphMLOutput(result map[string]*Function) (*bytes.Buffer, error) {
+	var graphmlBuf bytes.Buffer
+	graphmlBuf.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
+	graphmlBuf.WriteString(`<graphml xmlns="http://graphml.graphdrawing.org/xmlns">`)
+	graphmlBuf.WriteString(`<graph id="G" edgedefault="directed">`)
+
+	for funcName, funcData := range result {
+		graphmlBuf.WriteString(fmt.Sprintf(`<node id="%s"><data key="label">%s</data></node>`, funcName, funcName))
+		for _, calledFunc := range funcData.Calls {
+			graphmlBuf.WriteString(fmt.Sprintf(`<edge source="%s" target="%s"/>`, funcName, calledFunc))
+		}
+	}
+
+	graphmlBuf.WriteString(`</graph>`)
+	graphmlBuf.WriteString(`</graphml>`)
+
+	return &graphmlBuf, nil
+}
+
+func writeGraphMLFile(graphmlBuf *bytes.Buffer, outputPath string) error {
+	if err := os.WriteFile(outputPath, graphmlBuf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("error writing GraphML output to file: %v", err)
+	}
+
+	fmt.Printf("\nGraphML file saved to: %s\n", outputPath)
+	return nil
+}
+
+func generateGEXFOutput(result map[string]*Function) (*bytes.Buffer, error) {
+	var gexfBuf bytes.Buffer
+	gexfBuf.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
+	gexfBuf.WriteString(`<gexf xmlns="http://www.gexf.net/1.2draft" version="1.2">`)
+	gexfBuf.WriteString(`<graph mode="static" defaultedgetype="directed">`)
+	gexfBuf.WriteString(`<nodes>`)
+
+	for funcName := range result {
+		gexfBuf.WriteString(fmt.Sprintf(`<node id="%s" label="%s"/>`, funcName, funcName))
+	}
+
+	gexfBuf.WriteString(`</nodes>`)
+	gexfBuf.WriteString(`<edges>`)
+
+	edgeID := 0
+	for funcName, funcData := range result {
+		for _, calledFunc := range funcData.Calls {
+			gexfBuf.WriteString(fmt.Sprintf(`<edge id="%d" source="%s" target="%s"/>`, edgeID, funcName, calledFunc))
+			edgeID++
+		}
+	}
+
+	gexfBuf.WriteString(`</edges>`)
+	gexfBuf.WriteString(`</graph>`)
+	gexfBuf.WriteString(`</gexf>`)
+
+	return &gexfBuf, nil
+}
+
+func writeGEXFFile(gexfBuf *bytes.Buffer, outputPath string) error {
+	if err := os.WriteFile(outputPath, gexfBuf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("error writing GEXF output to file: %v", err)
+	}
+
+	fmt.Printf("\nGEXF file saved to: %s\n", outputPath)
 	return nil
 }
