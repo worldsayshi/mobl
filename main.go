@@ -30,13 +30,14 @@ func main() {
 	dotFilePath := flag.String("dotgraph", "", "Output DOT file path")
 	graphmlFilePath := flag.String("graphml", "", "Output GraphML file path")
 	gexfFilePath := flag.String("gexf", "", "Output GEXF file path")
+	pngFilePath := flag.String("png", "", "Output PNG file path")
 	flag.Parse()
 
 	if flag.NArg() != 1 {
-		log.Fatal("Usage: program [-dotgraph output_file] [-graphml output_file] [-gexf output_file] <source_directory>")
+		log.Fatal("Usage: program [-dotgraph output_file] [-graphml output_file] [-gexf output_file] [-png output_file] <source_directory>")
 	}
-	if *dotFilePath == "" && *graphmlFilePath == "" && *gexfFilePath == "" {
-		log.Fatal("At least one of -dotgraph, -graphml, or -gexf must be set")
+	if *dotFilePath == "" && *graphmlFilePath == "" && *gexfFilePath == "" && *pngFilePath == "" {
+		log.Fatal("At least one of -dotgraph, -graphml, -gexf, or -png must be set")
 	}
 	sourceDir := flag.Arg(0)
 
@@ -72,17 +73,31 @@ func main() {
 	log.Printf("Processed %d files", fileCount)
 	log.Printf("Found %d functions", len(functionMap))
 
-	if *dotFilePath != "" {
-		log.Println("Generating DOT file...")
-		dotBuf, err := generateDotOutput(functionMap)
+	var graph *graphviz.Graph
+	if *dotFilePath != "" || *pngFilePath != "" {
+		var dotBuf *bytes.Buffer
+		var err error
+		graph, dotBuf, err = generateDotOutput(functionMap)
 		if err != nil {
 			log.Fatal(err)
 		}
-		err = writeDotFile(dotBuf, *dotFilePath)
+		if *dotFilePath != "" {
+			log.Println("Generating DOT file...")
+			err = writeDotFile(dotBuf, *dotFilePath)
+			if err != nil {
+				log.Fatal(err)
+			}
+			log.Println("DOT file generation complete")
+		}
+	}
+
+	if *pngFilePath != "" {
+		log.Println("Generating PNG file...")
+		err := generatePNGOutput(graph, *pngFilePath)
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Println("DOT file generation complete")
+		log.Println("PNG file generation complete")
 	}
 
 	if *graphmlFilePath != "" {
@@ -194,18 +209,18 @@ func processFile(filePath string, parser *sitter.Parser, functionMap map[string]
 	return nil
 }
 
-func generateDotOutput(result map[string]*Function) (*bytes.Buffer, error) {
+func generateDotOutput(result map[string]*Function) (*graphviz.Graph, *bytes.Buffer, error) {
 	// Create graphviz graph
 	ctx := context.Background()
 	g, err := graphviz.New(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("error creating graphviz: %v", err)
+		return nil, nil, fmt.Errorf("error creating graphviz: %v", err)
 	}
 	defer g.Close()
 
 	graph, err := g.Graph()
 	if err != nil {
-		return nil, fmt.Errorf("error creating graph: %v", err)
+		return nil, nil, fmt.Errorf("error creating graph: %v", err)
 	}
 	defer func() {
 		if err := graph.Close(); err != nil {
@@ -218,7 +233,7 @@ func generateDotOutput(result map[string]*Function) (*bytes.Buffer, error) {
 	for funcName, funcData := range result {
 		node, err := graph.CreateNodeByName(funcName)
 		if err != nil {
-			return nil, fmt.Errorf("error creating node: %v", err)
+			return nil, nil, fmt.Errorf("error creating node: %v", err)
 		}
 		nodes[funcName] = node
 
@@ -226,13 +241,13 @@ func generateDotOutput(result map[string]*Function) (*bytes.Buffer, error) {
 			if _, ok := nodes[calledFunc]; !ok {
 				calledNode, err := graph.CreateNodeByName(calledFunc)
 				if err != nil {
-					return nil, fmt.Errorf("error creating node: %v", err)
+					return nil, nil, fmt.Errorf("error creating node: %v", err)
 				}
 				nodes[calledFunc] = calledNode
 			}
 			_, err := graph.CreateEdgeByName("call", nodes[funcName], nodes[calledFunc])
 			if err != nil {
-				return nil, fmt.Errorf("error creating edge: %v", err)
+				return nil, nil, fmt.Errorf("error creating edge: %v", err)
 			}
 		}
 	}
@@ -240,10 +255,10 @@ func generateDotOutput(result map[string]*Function) (*bytes.Buffer, error) {
 	// Generate DOT output
 	var dotBuf bytes.Buffer
 	if err := g.Render(ctx, graph, graphviz.Format(graphviz.DOT), &dotBuf); err != nil {
-		return nil, fmt.Errorf("error rendering DOT output: %v", err)
+		return nil, nil, fmt.Errorf("error rendering DOT output: %v", err)
 	}
 
-	return &dotBuf, nil
+	return graph, &dotBuf, nil
 }
 
 func writeDotFile(dotBuf *bytes.Buffer, outputPath string) error {
@@ -319,5 +334,14 @@ func writeGEXFFile(gexfBuf *bytes.Buffer, outputPath string) error {
 	}
 
 	fmt.Printf("\nGEXF file saved to: %s\n", outputPath)
+	return nil
+}
+
+func generatePNGOutput(graph *graphviz.Graph, outputPath string) error {
+	ctx := context.Background()
+	if err := graph.RenderFilename(ctx, graphviz.PNG, outputPath); err != nil {
+		return fmt.Errorf("error rendering PNG output: %v", err)
+	}
+	fmt.Printf("\nPNG file saved to: %s\n", outputPath)
 	return nil
 }
