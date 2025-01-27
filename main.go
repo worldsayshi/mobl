@@ -1,42 +1,3 @@
-// This program creates a call graph from Go source code and stores it in Dgraph.
-// It analyzes Go source files using Tree-sitter for parsing, extracts function
-// definitions and their calls to other functions, and builds a directed graph
-// representation of function calls.
-//
-// Key components:
-// - Tree-sitter parsing: Uses go-tree-sitter to parse Go source files and extract
-//   function declarations and function calls using AST queries
-// - Graph building: Creates a graph where nodes are functions and edges represent
-//   function calls between them
-// - Dgraph storage: Stores the call graph in Dgraph with a schema where functions
-//   are nodes with name and filePath properties, and calls are edges between nodes
-//
-// Usage:
-//   go run main.go <source_directory>
-//
-// The program will:
-// 1. Recursively scan the provided directory for .go files
-// 2. Parse each file and extract function definitions and calls
-// 3. Build an in-memory representation of the call graph
-// 4. Store the graph in Dgraph for further analysis
-//
-// Schema in Dgraph:
-// - Function type with properties:
-//   - name: string @index(exact)
-//   - filePath: string
-//   - calls: [uid] @reverse
-//
-// Example Dgraph query to explore the call graph:
-// {
-//   functions(func: type(Function)) {
-//     name
-//     filePath
-//     calls {
-//       name
-//     }
-//   }
-// }
-
 package main
 
 import (
@@ -107,21 +68,21 @@ func main() {
 
 	// Store in Dgraph
 	log.Println("Storing data in Dgraph...")
-	err = storeToDgraph(functionMap)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Println("Data storage complete")
+	// err = storeToDgraph(functionMap)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// log.Println("Data storage complete")
 
-	log.Println("Querying stored data...")
-	result, err := queryCallGraph()
-	if err != nil {
-		log.Fatal(err)
-	}
+	// log.Println("Querying stored data...")
+	// result, err := queryCallGraph()
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 	log.Println("Query complete")
 
 	log.Println("Generating DOT file...")
-	dotBuf, err := generateDotOutput(result)
+	dotBuf, err := generateDotOutput(functionMap)
 	if err != nil {
 		log.Fatal(err)
 	}
