@@ -19,8 +19,18 @@ sudo apt-get update
 sudo apt-get install graphviz
 
 
+## Example usage
+
+```
+go install github.com/worldsayshi/mobl@latest
+git clone https://github.com/golang/example golang-example
+mobl -graphml callgraph.graphml ./golang-example/ragserver/
+# Then open callgraph.graphml in Gephi
+```
+
 ## Original prompt
 
+As a reference:
 ```
 This program creates a call graph from Go source code and stores it in Dgraph.
 It analyzes Go source files using Tree-sitter for parsing, extracts function
